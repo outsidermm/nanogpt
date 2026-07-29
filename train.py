@@ -32,3 +32,8 @@ print(data[:1000])
 n = int (0.9*len(text))
 train_data = data[:n]
 val_data = data[n:]
+
+# Known as block size. i.e. from [1, context_size] amounts of character can the LLM output its prediction of the next token
+# Have to group training data in chunks of size context_size + 1 to traing and predict with context_size examples
+context_size = 8
+train_data[:context_size+1]
