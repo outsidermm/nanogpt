@@ -55,6 +55,7 @@ print("inputs: ", xb.shape, "targets: ", yb.shape)
 
 for b in range(batch_size):
     for t in range(context_size):
+        # Note: Splicing inconclusive of end bound hence t+1 rather than t
         context = xb[b, :t+1]
         target = yb[b, t]
         print(f"when input is {context.tolist()} the target: {target}")
