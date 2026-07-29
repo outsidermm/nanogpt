@@ -1,4 +1,5 @@
 import torch
+torch.manual_seed(42)
 
 with open("input.txt", "r", encoding="utf-8") as f:
     text = f.read()
