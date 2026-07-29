@@ -38,3 +38,23 @@ val_data = data[n:]
 # Have to group training data in chunks of size context_size + 1 to traing and predict with context_size examples
 context_size = 8
 train_data[:context_size+1]
+
+# Batching - manually done ._.
+batch_size = 4
+
+def get_batch(split):
+    # generate a small batch of data of inputs x and targets y
+    data = train_data if split == "train" else val_data
+    ix = torch.randint(len(data)- context_size, (batch_size,))
+    x = torch.stack([data[i:i+context_size] for i in ix])
+    y = torch.stack([data[i+1:i+context_size+1] for i in ix])
+    return x,y
+
+xb, yb = get_batch("train")
+print("inputs: ", xb.shape, "targets: ", yb.shape)
+
+for b in range(batch_size):
+    for t in range(context_size):
+        context = xb[b, :t+1]
+        target = yb[b, t]
+        print(f"when input is {context.tolist()} the target: {target}")
