@@ -27,3 +27,8 @@ print(decode(encode("hi there")))
 data = torch.tensor(encode(text), dtype=torch.long)
 print(data.shape, data.dtype) 
 print(data[:1000])
+
+# DS 90/10 val/train split
+n = int (0.9*len(text))
+train_data = data[:n]
+val_data = data[n:]
