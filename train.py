@@ -1,4 +1,6 @@
 import torch
+import torch.nn as nn
+from torch.nn import functional as F
 torch.manual_seed(42)
 
 with open("input.txt", "r", encoding="utf-8") as f:
@@ -59,3 +61,64 @@ for b in range(batch_size):
         context = xb[b, :t+1]
         target = yb[b, t]
         print(f"when input is {context.tolist()} the target: {target}")
+
+# Using one token to predict the possibility of the following token
+class BiagramLanguageModel(nn.Module):
+    def __init__(self, vocab_size):
+        super().__init__()
+        # each token directly reads off the logits for the next token from a lookup table
+        self.token_embedding_table = nn.Embedding(vocab_size, vocab_size)
+    
+    def forward(self,idx,targets = None):
+        # idx and targets are both (B, T) tensor of integers
+        logits = self.token_embedding_table(idx) # (B, T, C)
+        
+        if targets is None:
+            loss = None
+        else:
+            B, T, C = logits.shape
+            # Using view here instead of reshape since the tensors are contiguous in memory
+            logits = logits.view(B*T, C)
+            targets = targets.view(B*T)
+            loss = F.cross_entropy(logits,targets)
+
+        return logits, loss
+    
+    def generate(self, idx, max_new_token):
+        # idx is (B, T) array of indices in the current context
+        for _ in range(max_new_token):
+            logits,loss = self(idx)
+            #last time step
+            logits = logits[:, -1, :] # (B, C)
+            # apply softmax to get probabilities
+            probs = F.softmax(logits, dim=-1) # (B, C)
+            # sample from the distribution
+            idx_next = torch.multinomial(probs, num_samples=1)
+            idx = torch.cat((idx, idx_next), dim = 1) # (B, T+1)
+        return idx
+
+model = BiagramLanguageModel(vocab_size=vocab_size)
+logits, loss = model(xb,yb)
+print(logits.shape)
+print(loss)
+
+idx = torch.zeros((1,1), dtype=torch.long)
+result = model.generate(idx, max_new_token=100)[0].tolist()
+print(decode(result))
+
+optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+ 
+batch_size = 32
+for steps in range(20000):
+    #sample a batch of data
+    xb, yb = get_batch("train")
+    #evaluate the loss
+    logits, loss = model(xb,yb)
+    optimizer.zero_grad(set_to_none=True)
+    loss.backward()
+    optimizer.step()
+    print(steps, loss.item())
+    
+idx = torch.zeros((1,1), dtype=torch.long)
+result = model.generate(idx, max_new_token=500)[0].tolist()
+print(decode(result))
