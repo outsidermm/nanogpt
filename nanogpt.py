@@ -8,19 +8,21 @@ from torch import nn
 from torch.nn import functional as F
 
 # --- Hyperparameters ---
-CONTEXT_SIZE = 8
-BATCH_SIZE = 32
+CONTEXT_SIZE = 256
+BATCH_SIZE = 64
 MAX_STEPS = 5_000
 EVAL_INTERVAL = 500
 EVAL_ITERS = 200
-LEARNING_RATE = 1e-3
-MAX_NEW_TOKENS = 500
+LEARNING_RATE = 3e-4
+MAX_NEW_TOKENS = 10000
 SEED = 42
 DATA_PATH = "input.txt"
 TRAIN_SPLIT = 0.9
-N_EMBEDDING_DIM = 32  # Dimensionality of the token embeddings
-HEAD_SIZE = 16
+N_EMBEDDING_DIM = 384  # Dimensionality of the token embeddings
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+DROPOUT = 0.1  # Dropout rate for regularization
+N_LAYER = 6
+N_HEAD = 6
 
 torch.manual_seed(SEED)
 
@@ -77,6 +79,7 @@ class SingleHeadAttention(nn.Module):
         self.query = nn.Linear(N_EMBEDDING_DIM, head_size, bias=False)
         self.value = nn.Linear(N_EMBEDDING_DIM, head_size, bias=False)
         self.register_buffer("tril", torch.tril(torch.ones(CONTEXT_SIZE, CONTEXT_SIZE)))
+        self.dropout = nn.Dropout(DROPOUT)
         
     def forward(self, x):
         B, T, C = x.shape
@@ -86,6 +89,7 @@ class SingleHeadAttention(nn.Module):
         weight = q @ k.transpose(-2, -1) * (C ** -0.5)  # (B, T, T)
         weight = weight.masked_fill(self.tril[:T, :T] == 0, float('-inf'))
         weight = F.softmax(weight, dim=-1) # (B, T, T)
+        weight = self.dropout(weight)
         output = weight @ v  # (B, T, head_size)
         return output
     
@@ -94,10 +98,12 @@ class MultiHeadAttention(nn.Module):
         super().__init__()
         self.heads = nn.ModuleList([SingleHeadAttention(head_size) for _ in range(num_heads)])
         self.proj = nn.Linear(N_EMBEDDING_DIM, N_EMBEDDING_DIM)  # Project concatenated heads back to embedding dimension]
+        self.dropout = nn.Dropout(DROPOUT)
     
     def forward(self, x):
         output =  torch.cat([h(x) for h in self.heads], dim=-1)  # Concatenate along the embedding dimension
         output = self.proj(output)
+        output = self.dropout(output)
         return output
 
 class FeedForward(nn.Module):
@@ -106,7 +112,8 @@ class FeedForward(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(n_embd, n_embd * 4),
             nn.ReLU(),
-            nn.Linear(n_embd * 4, n_embd)
+            nn.Linear(n_embd * 4, n_embd),
+            nn.Dropout(DROPOUT)
         )
     
     def forward(self, x):
@@ -118,10 +125,12 @@ class AttentionBlock(nn.Module):
         head_size = n_embd // n_head
         self.mha = MultiHeadAttention(n_head, head_size)
         self.ffwd = FeedForward(n_embd)
+        self.ln1 = nn.LayerNorm(n_embd)
+        self.ln2 = nn.LayerNorm(n_embd)
     
     def forward(self, x):
-        x = x + self.mha(x)
-        x = x + self.ffwd(x)
+        x = x + self.mha(self.ln1(x))
+        x = x + self.ffwd(self.ln2(x))
         return x
 
 class BigramLanguageModel(nn.Module):
@@ -132,10 +141,11 @@ class BigramLanguageModel(nn.Module):
         self.token_embedding_table = nn.Embedding(vocab_size, N_EMBEDDING_DIM)  # Embedding layer to map token indices to embeddings
         self.positional_embedding_table = nn.Embedding(CONTEXT_SIZE, N_EMBEDDING_DIM)  # Embedding layer for positional encodings
         self.blocks = nn.Sequential(
-            AttentionBlock(N_EMBEDDING_DIM, 4),  # Add attention blocks for context
-            AttentionBlock(N_EMBEDDING_DIM, 4),
-            AttentionBlock(N_EMBEDDING_DIM, 4),
+            *[
+                AttentionBlock(N_EMBEDDING_DIM, N_HEAD) for _ in range(N_LAYER)
+            ]  # Add attention blocks for context
         )
+        self.ln_f = nn.LayerNorm(N_EMBEDDING_DIM)  # Final layer normalization
         self.lm_head = nn.Linear(N_EMBEDDING_DIM, vocab_size)  # Linear layer to project embeddings to vocab size
 
     def forward(self, idx: torch.Tensor, targets: torch.Tensor = None):
@@ -148,6 +158,7 @@ class BigramLanguageModel(nn.Module):
         token_embeddings = self.token_embedding_table(idx)  # (B, T, N_EMBEDDING_DIM)
         positional_embeddings = self.positional_embedding_table(torch.arange(T, device=idx.device))  # (B, T, N_EMBEDDING_DIM)
         x = token_embeddings + positional_embeddings  # (B, T, N_EMBEDDING_DIM)
+        x = self.ln_f(x)  # (B, T, N_EMBEDDING_DIM)
         x = self.blocks(x)  # (B, T, N_EMBEDDING_DIM)
         logits = self.lm_head(x)
 
