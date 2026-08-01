@@ -29,7 +29,7 @@ def load_data(path: str):
     with open(path, "r", encoding="utf-8") as f:
         text = f.read()
 
-    chars = sorted(list(set(text)))
+    chars = sorted(set(text))
     vocab_size = len(chars)
 
     stoi = {ch: i for i, ch in enumerate(chars)}

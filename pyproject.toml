@@ -1,7 +1,7 @@
 [project]
 name = "nanogpt"
 version = "0.1.0"
-description = "Add your description here"
+description = "A from-scratch, character-level GPT in PyTorch with CLI training, checkpointing, and sampling."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -11,5 +11,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pytest>=9.1.1",
     "ruff>=0.16.1",
 ]
