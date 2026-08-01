@@ -89,6 +89,13 @@ class SingleHeadAttention(nn.Module):
         output = weight @ v  # (B, T, head_size)
         return output
     
+class MultiHeadAttention(nn.Module):
+    def __init__(self,num_heads, head_size):
+        super().__init__()
+        self.heads = nn.ModuleList([SingleHeadAttention(head_size) for _ in range(num_heads)])
+    
+    def forward(self, x):
+        return torch.cat([h(x) for h in self.heads], dim=-1)  # Concatenate along the embedding dimension
 
 class BigramLanguageModel(nn.Module):
     """Predicts the next token using only the current token (no context beyond it)."""
@@ -97,7 +104,7 @@ class BigramLanguageModel(nn.Module):
         super().__init__()
         self.token_embedding_table = nn.Embedding(vocab_size, N_EMBEDDING_DIM)  # Embedding layer to map token indices to embeddings
         self.positional_embedding_table = nn.Embedding(CONTEXT_SIZE, N_EMBEDDING_DIM)  # Embedding layer for positional encodings
-        self.sa_head = SingleHeadAttention(N_EMBEDDING_DIM)  # Single attention head
+        self.mha = MultiHeadAttention(4, N_EMBEDDING_DIM // 4)  # Multi-head attention
         self.lm_head = nn.Linear(N_EMBEDDING_DIM, vocab_size)  # Linear layer to project embeddings to vocab size
 
     def forward(self, idx: torch.Tensor, targets: torch.Tensor = None):
@@ -110,7 +117,7 @@ class BigramLanguageModel(nn.Module):
         token_embeddings = self.token_embedding_table(idx)  # (B, T, N_EMBEDDING_DIM)
         positional_embeddings = self.positional_embedding_table(torch.arange(T, device=idx.device))  # (B, T, N_EMBEDDING_DIM)
         x = token_embeddings + positional_embeddings  # (B, T, N_EMBEDDING_DIM)
-        x = self.sa_head(x)  # (B, T, N_EMBEDDING_DIM)
+        x = self.mha(x)  # (B, T, N_EMBEDDING_DIM)
         logits = self.lm_head(x)
 
         if targets is None:
