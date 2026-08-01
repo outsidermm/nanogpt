@@ -93,20 +93,36 @@ class MultiHeadAttention(nn.Module):
     def __init__(self,num_heads, head_size):
         super().__init__()
         self.heads = nn.ModuleList([SingleHeadAttention(head_size) for _ in range(num_heads)])
+        self.proj = nn.Linear(N_EMBEDDING_DIM, N_EMBEDDING_DIM)  # Project concatenated heads back to embedding dimension]
     
     def forward(self, x):
-        return torch.cat([h(x) for h in self.heads], dim=-1)  # Concatenate along the embedding dimension
+        output =  torch.cat([h(x) for h in self.heads], dim=-1)  # Concatenate along the embedding dimension
+        output = self.proj(output)
+        return output
 
 class FeedForward(nn.Module):
     def __init__(self, n_embd):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(n_embd, n_embd),
+            nn.Linear(n_embd, n_embd * 4),
             nn.ReLU(),
+            nn.Linear(n_embd * 4, n_embd)
         )
     
     def forward(self, x):
         return self.net(x)
+
+class AttentionBlock(nn.Module):
+    def __init__(self, n_embd, n_head):
+        super().__init__()
+        head_size = n_embd // n_head
+        self.mha = MultiHeadAttention(n_head, head_size)
+        self.ffwd = FeedForward(n_embd)
+    
+    def forward(self, x):
+        x = x + self.mha(x)
+        x = x + self.ffwd(x)
+        return x
 
 class BigramLanguageModel(nn.Module):
     """Predicts the next token using only the current token (no context beyond it)."""
@@ -115,8 +131,11 @@ class BigramLanguageModel(nn.Module):
         super().__init__()
         self.token_embedding_table = nn.Embedding(vocab_size, N_EMBEDDING_DIM)  # Embedding layer to map token indices to embeddings
         self.positional_embedding_table = nn.Embedding(CONTEXT_SIZE, N_EMBEDDING_DIM)  # Embedding layer for positional encodings
-        self.mha = MultiHeadAttention(4, N_EMBEDDING_DIM // 4)  # Multi-head attention
-        self.ffwd = FeedForward(N_EMBEDDING_DIM)  # Feed-forward network
+        self.blocks = nn.Sequential(
+            AttentionBlock(N_EMBEDDING_DIM, 4),  # Add attention blocks for context
+            AttentionBlock(N_EMBEDDING_DIM, 4),
+            AttentionBlock(N_EMBEDDING_DIM, 4),
+        )
         self.lm_head = nn.Linear(N_EMBEDDING_DIM, vocab_size)  # Linear layer to project embeddings to vocab size
 
     def forward(self, idx: torch.Tensor, targets: torch.Tensor = None):
@@ -129,8 +148,7 @@ class BigramLanguageModel(nn.Module):
         token_embeddings = self.token_embedding_table(idx)  # (B, T, N_EMBEDDING_DIM)
         positional_embeddings = self.positional_embedding_table(torch.arange(T, device=idx.device))  # (B, T, N_EMBEDDING_DIM)
         x = token_embeddings + positional_embeddings  # (B, T, N_EMBEDDING_DIM)
-        x = self.mha(x)  # (B, T, N_EMBEDDING_DIM)
-        x = self.ffwd(x)  # (B, T, N_EMBEDDING_DIM)
+        x = self.blocks(x)  # (B, T, N_EMBEDDING_DIM)
         logits = self.lm_head(x)
 
         if targets is None:
